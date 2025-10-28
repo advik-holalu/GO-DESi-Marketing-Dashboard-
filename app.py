@@ -7,7 +7,7 @@ import math
 # --------------------------------------------------
 # 🎨 Page Configuration
 # --------------------------------------------------
-st.set_page_config(page_title="Marketing Keyword Dashboard", layout="wide")
+st.set_page_config(page_title="Brand Building Dashboard", layout="wide")
 st.markdown(
     "<h1 style='text-align:left; color:#ffffff; font-weight:800;'>📊 Marketing Keyword Dashboard</h1>",
     unsafe_allow_html=True
