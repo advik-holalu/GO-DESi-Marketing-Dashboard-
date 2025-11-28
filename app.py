@@ -5,23 +5,23 @@ import re
 import math
 
 # --------------------------------------------------
-# 🎨 Page Configuration
+# Page Configuration
 # --------------------------------------------------
 st.set_page_config(page_title="Brand Building Dashboard", layout="wide")
 st.markdown(
-    "<h1 style='text-align:left; color:#ffffff; font-weight:800;'>Brand Building Dashboard</h1>",
+    "<h1 style='text-align:left; font-weight:800;'>Brand Building Dashboard</h1>",
     unsafe_allow_html=True
 )
 
 # --------------------------------------------------
-# 🧩 Load & Clean Main Data  (MarketingDashboardUpdated.xlsx)
+# Load and Clean Marketing Dashboard Data (Main File)
 # --------------------------------------------------
 @st.cache_data
 def load_data():
     df = pd.read_excel("MarketingDashboardUpdated.xlsx")
     df.columns = df.columns.str.strip()
 
-    # --- Detect columns dynamically
+    # Detect core columns automatically
     month_col = next((c for c in df.columns if re.search("month", c, re.I)), None)
     region_col = next((c for c in df.columns if re.search("region", c, re.I)), None)
     category_col = next((c for c in df.columns if re.fullmatch("category", c.strip(), re.I)), None)
@@ -29,7 +29,7 @@ def load_data():
     keyword_type_col = next((c for c in df.columns if re.search("keyword type", c, re.I)), None)
     keyword_col = next((c for c in df.columns if re.fullmatch("keyword", c.strip(), re.I)), None)
 
-    # --- Clean category
+    # Standardize category text formatting
     if category_col:
         df[category_col] = (
             df[category_col].astype(str).str.strip()
@@ -37,23 +37,30 @@ def load_data():
             .str.title()
         )
 
-    # --- Normalize platform names
+    # Normalize platform names
     if platform_col:
         df[platform_col] = (
             df[platform_col].astype(str).str.strip().str.lower().replace({
-                "instagram": "instamart", "insta-mart": "instamart",
-                "blinkit": "blinkit", "zepto": "zepto"
-            }).map({"blinkit": "Blinkit", "instamart": "Instamart", "zepto": "Zepto"})
+                "instagram": "instamart",
+                "insta-mart": "instamart",
+                "blinkit": "blinkit",
+                "zepto": "zepto"
+            }).map({
+                "blinkit": "Blinkit",
+                "instamart": "Instamart",
+                "zepto": "Zepto"
+            })
         )
 
-    # --- Normalize keyword type
+    # Clean keyword type
     if keyword_type_col:
         df[keyword_type_col] = (
             df[keyword_type_col].astype(str).str.strip().str.lower()
-            .replace({"branded": "brand"}).str.title()
+            .replace({"branded": "brand"})
+            .str.title()
         )
 
-    # --- Detect metrics
+    # Detect metric columns
     metrics = {
         "Volume Share": next((c for c in df.columns if re.search("volume share", c, re.I)), None),
         "Ad SOV": next((c for c in df.columns if re.search(r"\bad", c, re.I)), None),
@@ -62,23 +69,24 @@ def load_data():
         "Cat. Imp. Share": next((c for c in df.columns if re.search("cat.*imp", c, re.I)), None),
     }
 
-    # --- Convert to numeric
+    # Convert all metric percentage values to numeric
     for col in metrics.values():
-        if col and col in df.columns:
+        if col in df.columns:
             df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace("%", "", regex=False).replace("", 0),
+                df[col].astype(str).str.replace("%", "", regex=False),
                 errors="coerce"
             ).fillna(0)
 
-    # --- Month mapping
+    # Month mapping and sorting
     month_map = {
         "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
         "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
     }
 
     def parse_month(x):
+        x = str(x).lower()
         for k, v in month_map.items():
-            if re.search(k, str(x).lower()):
+            if k in x:
                 return v
         return None
 
@@ -86,176 +94,241 @@ def load_data():
     df["MonthName"] = df["MonthNum"].map({v: k.title() for k, v in month_map.items()})
     df = df.dropna(subset=["MonthNum"])
 
-    # --- Remove "ALL" keyword and keep only Apr–Sep
+    # Remove ALL keyword and restrict month to Apr onwards
     if keyword_col:
         df = df[~df[keyword_col].astype(str).str.fullmatch("all", case=False, na=False)]
     df = df[df["MonthNum"] >= 4]
 
-    # --- Valid platforms only
-    valid_platforms = ["Blinkit", "Instamart", "Zepto"]
-    df = df[df[platform_col].isin(valid_platforms)]
+    # Final platform constraint
+    df = df[df[platform_col].isin(["Blinkit", "Instamart", "Zepto"])]
 
     return df, region_col, category_col, platform_col, keyword_type_col, keyword_col, metrics
 
 
+# Load main dataset
 df, region_col, category_col, platform_col, keyword_type_col, keyword_col, metrics = load_data()
 
+
 # --------------------------------------------------
-# 📂 Tabs
+# Side Tabs Setup
 # --------------------------------------------------
 tab1, tab2, tab3 = st.tabs([
-    "📈 Volume Share MoM",
-    "🔍 Keyword Trend Analysis",
-    "💪 Brand Strength Analysis"
+    "Volume Share MoM",
+    "Keyword Trend Analysis",
+    "Brand Strength Analysis"
 ])
 
 # --------------------------------------------------
-# 🧭 TAB 1 — Volume Share MoM
+# TAB 1 — Volume Share MoM (Regions as Lines)
 # --------------------------------------------------
 with tab1:
-    st.markdown("<h2 style='color:#ffffff;'>Volume Share MoM Analysis by Keyword Type</h2>", unsafe_allow_html=True)
+    st.markdown("<h2>Volume Share MoM Analysis by Keyword Type</h2>", unsafe_allow_html=True)
 
+    # Sidebar Filters
     st.sidebar.header("Filter Options (Tab 1)")
-    regions = st.sidebar.multiselect("Select Region(s):", sorted(df[region_col].dropna().unique()), key="region_tab1")
-    categories = st.sidebar.multiselect("Select Category(s):", sorted(df[category_col].dropna().unique()), key="category_tab1")
 
-    filtered_df = df.copy()
-    if regions:
-        filtered_df = filtered_df[filtered_df[region_col].isin(regions)]
-    if categories:
-        filtered_df = filtered_df[filtered_df[category_col].isin(categories)]
+    region_filter = st.sidebar.multiselect(
+        "Select Region(s):",
+        sorted(df[region_col].dropna().unique()),
+        key="t1_region"
+    )
 
-    def format_keywords_table(keywords):
-        if not keywords:
-            return "<p><i>No keywords available.</i></p>"
-        half = math.ceil(len(keywords) / 2)
-        col1, col2 = keywords[:half], keywords[half:]
-        html = """
-        <div style="background-color:rgba(255,255,255,0.03);border-radius:8px;padding:8px 12px;
-        border:1px solid rgba(255,255,255,0.08);font-family:'Inter',sans-serif;color:#f5f5f5;
-        font-size:13px;line-height:1.2;width:100%;max-height:300px;overflow-y:auto;">
-        <table style="width:100%;border-collapse:collapse;">
-        <tr><td style="vertical-align:top;width:48%;padding-right:10px;">"""
-        html += "".join(f"<div style='padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06);'>{kw.title()}</div>" for kw in col1)
-        html += "</td><td style='vertical-align:top;width:48%;'>"
-        html += "".join(f"<div style='padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06);'>{kw.title()}</div>" for kw in col2)
-        html += "</td></tr></table></div>"
-        return html
+    category_filter = st.sidebar.multiselect(
+        "Select Category(s):",
+        sorted(df[category_col].dropna().unique()),
+        key="t1_category"
+    )
 
-    for kw_type in df[keyword_type_col].dropna().unique():
-        type_df = filtered_df[filtered_df[keyword_type_col] == kw_type]
-        if type_df.empty:
+    # NEW: Platform Filter
+    platform_filter = st.sidebar.multiselect(
+        "Select Platform(s):",
+        sorted(df[platform_col].dropna().unique()),
+        key="t1_platform"
+    )
+
+    # Apply filters
+    filtered = df.copy()
+
+    if region_filter:
+        filtered = filtered[filtered[region_col].isin(region_filter)]
+
+    if category_filter:
+        filtered = filtered[filtered[category_col].isin(category_filter)]
+
+    if platform_filter:
+        filtered = filtered[filtered[platform_col].isin(platform_filter)]
+
+    # Loop through Keyword Types (kept exactly like original)
+    vol_col = metrics["Volume Share"]
+    keyword_types = filtered[keyword_type_col].dropna().unique().tolist()
+
+    for kw_type in keyword_types:
+
+        data_kw = filtered[filtered[keyword_type_col] == kw_type]
+        if data_kw.empty:
             continue
 
-        vol_col = metrics["Volume Share"]
-        benchmark_df = type_df[type_df["MonthNum"].between(4, 6)]
-        benchmark_value = benchmark_df[vol_col].mean() if not benchmark_df.empty else 0
+        # Q1 Benchmark (Apr-Jun average)
+        q1df = data_kw[data_kw["MonthNum"].between(4, 6)]
+        benchmark = q1df[vol_col].mean() if not q1df.empty else 0
 
-        trend_data = (
-            type_df.groupby(["MonthName", "MonthNum", platform_col])[vol_col]
+        # Trend grouped by REGION instead of Platform
+        trend = (
+            data_kw.groupby(["MonthName", "MonthNum", region_col])[vol_col]
             .mean().reset_index().sort_values("MonthNum")
         )
 
         st.markdown(
-            f"<h3 style='color:#ffffff;margin-top:35px;'>{kw_type} Keywords — Volume Share Trend (Apr–Sep)</h3>",
+            f"<h3 style='margin-top:35px;'>{kw_type} Keywords — Volume Share Trend (Apr–Sep)</h3>",
             unsafe_allow_html=True
         )
 
         col1, col2 = st.columns([2.5, 1])
+
+        # ------------------- GRAPH -------------------
         with col1:
             fig = px.line(
-                trend_data, x="MonthName", y=vol_col, color=platform_col, markers=True,
-                labels={"MonthName": "Month", vol_col: "Volume Share (%)"}
+                trend,
+                x="MonthName",
+                y=vol_col,
+                color=region_col,              # Region becomes the line series
+                markers=True,
+                labels={"MonthName": "Month", vol_col: "Volume Share"}
             )
             fig.update_traces(connectgaps=False)
             fig.update_yaxes(zeroline=False)
+
+            # Benchmark Reference Line
             fig.add_hline(
-                y=benchmark_value, line_dash="dot",
-                annotation_text=f"Benchmark (Apr–Jun Avg: {benchmark_value:.2f}%)",
-                annotation_position="bottom right", line_color="white", opacity=0.6
+                y=benchmark,
+                line_dash="dot",
+                annotation_text=f"Q1 Avg: {benchmark:.2f}",
+                annotation_position="bottom right",
+                opacity=0.55
             )
-            fig.update_layout(template="plotly_dark", height=400, yaxis=dict(ticksuffix="%"))
+
+            fig.update_layout(template="plotly_dark", height=400)
             st.plotly_chart(fig, use_container_width=True)
 
+        # ------------------- KEYWORD TABLE -------------------
         with col2:
-            st.markdown("<h4 style='color:#f5f5f5;'>Keywords in this Type</h4>", unsafe_allow_html=True)
-            keywords = sorted(type_df[keyword_col].dropna().unique().tolist())
-            st.markdown(format_keywords_table(keywords), unsafe_allow_html=True)
+            st.markdown("<h4>Keywords in this Segment</h4>", unsafe_allow_html=True)
+            keywords = sorted(data_kw[keyword_col].dropna().unique().tolist())
+
+            def render_keyword_list(kw):
+                half = math.ceil(len(kw) / 2)
+                c1, c2 = kw[:half], kw[half:]
+                html = "<div style='background:rgba(255,255,255,0.05);padding:8px 10px;border-radius:6px;'>"
+                html += "<table style='width:100%;'><tr><td valign='top'>"
+                html += "".join(f"<div style='margin-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.08);'>{k}</div>" for k in c1)
+                html += "</td><td valign='top'>"
+                html += "".join(f"<div style='margin-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.08);'>{k}</div>" for k in c2)
+                html += "</td></tr></table></div>"
+                return html
+
+            st.markdown(render_keyword_list(keywords), unsafe_allow_html=True)
 
 # --------------------------------------------------
-# 🔍 TAB 2 — Keyword Trend Analysis (stacked full-width charts)
+# TAB 2 — Keyword Trend Analysis
 # --------------------------------------------------
 with tab2:
-    st.markdown("<h2 style='color:#ffffff;'>Keyword Trend Analysis</h2>", unsafe_allow_html=True)
+    st.markdown("<h2>Keyword Trend Analysis</h2>", unsafe_allow_html=True)
 
     st.sidebar.header("Filter Options (Tab 2)")
-    region_filter = st.sidebar.multiselect("Select Region(s):", sorted(df[region_col].dropna().unique()), key="region_tab2")
-    category_filter = st.sidebar.multiselect("Select Category(s):", sorted(df[category_col].dropna().unique()), key="category_tab2")
-    kw_type_filter = st.sidebar.multiselect(
+
+    # Filters remain unchanged
+    region_filter_t2 = st.sidebar.multiselect(
+        "Select Region(s):",
+        sorted(df[region_col].dropna().unique()),
+        key="t2_region"
+    )
+
+    category_filter_t2 = st.sidebar.multiselect(
+        "Select Category(s):",
+        sorted(df[category_col].dropna().unique()),
+        key="t2_category"
+    )
+
+    keyword_type_filter = st.sidebar.multiselect(
         "Select Keyword Type(s):",
         sorted(df[keyword_type_col].dropna().unique()),
         default=["Brand"],
-        key="kwtype_tab2"
+        key="t2_kwtype"
     )
 
-    kw_base = df.copy()
-    if region_filter:
-        kw_base = kw_base[kw_base[region_col].isin(region_filter)]
-    if category_filter:
-        kw_base = kw_base[kw_base[category_col].isin(category_filter)]
-    if kw_type_filter:
-        kw_base = kw_base[kw_base[keyword_type_col].isin(kw_type_filter)]
+    # Filter keyword universe first
+    base_kw = df.copy()
+    if region_filter_t2:
+        base_kw = base_kw[base_kw[region_col].isin(region_filter_t2)]
+    if category_filter_t2:
+        base_kw = base_kw[base_kw[category_col].isin(category_filter_t2)]
+    if keyword_type_filter:
+        base_kw = base_kw[base_kw[keyword_type_col].isin(keyword_type_filter)]
 
-    kw_options = sorted(kw_base[keyword_col].dropna().unique())
-    selected_keywords = st.sidebar.multiselect("Select Keyword(s):", kw_options, key="keyword_tab2")
-    selected_metrics = st.sidebar.multiselect("Select Metrics to Display:", list(metrics.keys()), default=["Volume Share"], key="metrics_tab2")
+    kw_choices = sorted(base_kw[keyword_col].dropna().unique())
+    selected_keywords = st.sidebar.multiselect(
+        "Select Keywords:",
+        kw_choices,
+        key="t2_keywords"
+    )
 
-    filtered = df.copy()
-    if region_filter:
-        filtered = filtered[filtered[region_col].isin(region_filter)]
-    if category_filter:
-        filtered = filtered[filtered[category_col].isin(category_filter)]
-    if kw_type_filter:
-        filtered = filtered[filtered[keyword_type_col].isin(kw_type_filter)]
+    # Select metrics to display
+    metric_choices = list(metrics.keys())
+    selected_metrics = st.sidebar.multiselect(
+        "Select Metrics to Display:",
+        metric_choices,
+        default=["Volume Share"],
+        key="t2_metrics"
+    )
+
+    # Final filter pass before plotting
+    filtered_t2 = df.copy()
+    if region_filter_t2:
+        filtered_t2 = filtered_t2[filtered_t2[region_col].isin(region_filter_t2)]
+    if category_filter_t2:
+        filtered_t2 = filtered_t2[filtered_t2[category_col].isin(category_filter_t2)]
+    if keyword_type_filter:
+        filtered_t2 = filtered_t2[filtered_t2[keyword_type_col].isin(keyword_type_filter)]
     if selected_keywords:
-        filtered = filtered[filtered[keyword_col].isin(selected_keywords)]
+        filtered_t2 = filtered_t2[filtered_t2[keyword_col].isin(selected_keywords)]
 
-    if filtered.empty:
+    if filtered_t2.empty:
         st.warning("No data available for the selected filters.")
     else:
-        label_types = ", ".join(kw_type_filter) if kw_type_filter else "All Types"
-        st.markdown(f"<h4 style='color:#f5f5f5;'>Trend for Selected Keywords ({label_types})</h4>", unsafe_allow_html=True)
+        label_block = ", ".join(keyword_type_filter) if keyword_type_filter else "All Keyword Types"
+        st.markdown(f"<h4>Trend for Selected Keywords ({label_block})</h4>", unsafe_allow_html=True)
 
-        valid_platforms = ["Blinkit", "Instamart", "Zepto"]
-        for platform in valid_platforms:
-            plat_df = filtered[filtered[platform_col] == platform]
-            if plat_df.empty:
-                st.warning(f"No data for {platform}")
+        # Loop platform -> then loop metrics
+        for platform in ["Blinkit", "Instamart", "Zepto"]:
+            pf = filtered_t2[filtered_t2[platform_col] == platform]
+            if pf.empty:
+                st.warning(f"No data found for {platform}")
                 continue
 
             for metric in selected_metrics:
                 metric_col = metrics[metric]
-                plot_df = plat_df.sort_values("MonthNum").copy()
-                # IMPORTANT: do NOT drop real zeros; only avoid connecting gaps
+                df_plot = pf.sort_values("MonthNum")
+
                 fig = px.line(
-                    plot_df, x="MonthName", y=metric_col, color=keyword_col, markers=True,
+                    df_plot,
+                    x="MonthName",
+                    y=metric_col,
+                    color=keyword_col,         # Keeps keyword comparison intact
+                    markers=True,
                     title=f"{platform} — {metric}",
-                    labels={"MonthName": "Month", metric_col: f"{metric} (%)"},
+                    labels={"MonthName": "Month", metric_col: metric}
                 )
+
                 fig.update_traces(connectgaps=False)
                 fig.update_yaxes(zeroline=False)
-                fig.update_layout(
-                    template="plotly_dark",
-                    height=450,
-                    yaxis=dict(ticksuffix="%"),
-                    title_font=dict(size=18),
-                    margin=dict(l=30, r=30, t=60, b=30)
-                )
+                fig.update_layout(template="plotly_dark", height=450, margin=dict(l=30, r=30, t=60, b=30))
+
                 st.plotly_chart(fig, use_container_width=True)
 
 # --------------------------------------------------
-# 💪 TAB 3 — Brand Strength Analysis  (BrandStrength.xlsx)
+# TAB 3 — Brand Strength Analysis
 # --------------------------------------------------
+
 @st.cache_data
 def load_brand_strength():
     df_bs = pd.read_excel("BrandStrength.xlsx")
@@ -267,71 +340,86 @@ def load_brand_strength():
     month_col = next((c for c in df_bs.columns if re.search("month", c, re.I)), None)
     bs_col = next((c for c in df_bs.columns if re.search("brand.*strength", c, re.I)), None)
 
-    # Normalize platforms
-    if platform_col:
-        df_bs[platform_col] = (
-            df_bs[platform_col].astype(str).str.strip().str.lower().replace({
-                "instagram": "instamart", "insta-mart": "instamart",
-                "blinkit": "blinkit", "zepto": "zepto"
-            }).map({"blinkit": "Blinkit", "instamart": "Instamart", "zepto": "Zepto"})
-        )
+    # Standardize platform names
+    df_bs[platform_col] = (
+        df_bs[platform_col].astype(str).str.strip().str.lower().replace({
+            "instagram": "instamart",
+            "insta-mart": "instamart",
+            "blinkit": "blinkit",
+            "zepto": "zepto"
+        }).map({
+            "blinkit": "Blinkit",
+            "instamart": "Instamart",
+            "zepto": "Zepto"
+        })
+    )
 
-    # Month parsing
-    month_map = {
-        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
-    }
-    def parse_month(x):
-        for k, v in month_map.items():
-            if re.search(k, str(x).lower()):
-                return v
-        return None
-
-    df_bs["MonthNum"] = df_bs[month_col].apply(parse_month)
-    df_bs["MonthName"] = df_bs["MonthNum"].map({v: k.title() for k, v in month_map.items()})
+    # Month conversion
+    month_map = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+    df_bs["MonthNum"] = df_bs[month_col].apply(lambda x: next((v for k,v in month_map.items() if k in str(x).lower()), None))
+    df_bs["MonthName"] = df_bs["MonthNum"].map({v:k.title() for k,v in month_map.items()})
     df_bs = df_bs.dropna(subset=["MonthNum"])
-    df_bs = df_bs[df_bs["MonthNum"] >= 4]  # Apr–Sep only
+    df_bs = df_bs[df_bs["MonthNum"] >= 4]
 
-    if bs_col:
-        df_bs[bs_col] = pd.to_numeric(
-            df_bs[bs_col].astype(str).str.replace("%", "", regex=False),
-            errors="coerce"
-        ).fillna(0)
+    # Numeric conversion
+    df_bs[bs_col] = pd.to_numeric(df_bs[bs_col].astype(str).str.replace("%",""), errors="coerce").fillna(0)
 
     return df_bs, region_col, category_col, platform_col, bs_col
 
 
 with tab3:
-    st.markdown("<h2 style='color:#ffffff;'>Brand Strength Analysis</h2>", unsafe_allow_html=True)
-    bs_df, region_col_bs, category_col_bs, platform_col_bs, bs_col = load_brand_strength()
+    st.markdown("<h2>Brand Strength Analysis</h2>", unsafe_allow_html=True)
+
+    bs_df, region_bs, category_bs, platform_bs, strength_col = load_brand_strength()
 
     st.sidebar.header("Filter Options (Tab 3)")
-    regions_bs = st.sidebar.multiselect("Select Region(s):", sorted(bs_df[region_col_bs].dropna().unique()), key="region_bs")
-    categories_bs = st.sidebar.multiselect("Select Category(s):", sorted(bs_df[category_col_bs].dropna().unique()), key="category_bs")
 
+    region_filter_bs = st.sidebar.multiselect(
+        "Select Region(s):",
+        sorted(bs_df[region_bs].dropna().unique()),
+        key="t3_region"
+    )
+
+    category_filter_bs = st.sidebar.multiselect(
+        "Select Category(s):",
+        sorted(bs_df[category_bs].dropna().unique()),
+        key="t3_category"
+    )
+
+    # Apply filters
     filtered_bs = bs_df.copy()
-    if regions_bs:
-        filtered_bs = filtered_bs[filtered_bs[region_col_bs].isin(regions_bs)]
-    if categories_bs:
-        filtered_bs = filtered_bs[filtered_bs[category_col_bs].isin(categories_bs)]
+    if region_filter_bs:
+        filtered_bs = filtered_bs[filtered_bs[region_bs].isin(region_filter_bs)]
+    if category_filter_bs:
+        filtered_bs = filtered_bs[filtered_bs[category_bs].isin(category_filter_bs)]
 
     if filtered_bs.empty:
-        st.warning("No data available for selected filters.")
+        st.warning("No data available.")
     else:
-        valid_platforms = ["Blinkit", "Instamart", "Zepto"]
-        for platform in valid_platforms:
-            plat_df = filtered_bs[filtered_bs[platform_col_bs] == platform]
-            if plat_df.empty:
-                st.warning(f"No data for {platform}")
+        for platform in ["Blinkit", "Instamart", "Zepto"]:
+
+            pf = filtered_bs[filtered_bs[platform_bs] == platform]
+            if pf.empty:
                 continue
 
-            fig = px.line(
-                plat_df.sort_values("MonthNum"),
-                x="MonthName", y=bs_col, markers=True,
-                title=f"{platform} — Brand Strength Trend (Apr–Sep)",
-                labels={"MonthName": "Month", bs_col: "Brand Strength (%)"}
+            # Region-based trend (main fix)
+            trend_bs = (
+                pf.groupby(["MonthName","MonthNum",region_bs])[strength_col]
+                .mean().reset_index().sort_values("MonthNum")
             )
+
+            fig = px.line(
+                trend_bs,
+                x="MonthName",
+                y=strength_col,
+                color=region_bs,        # now one line per region
+                markers=True,
+                title=f"{platform} — Brand Strength by Region",
+                labels={"MonthName": "Month", strength_col: "Brand Strength"}
+            )
+
             fig.update_traces(connectgaps=False)
             fig.update_yaxes(zeroline=False)
-            fig.update_layout(template="plotly_dark", height=450, yaxis=dict(ticksuffix="%"))
+            fig.update_layout(template="plotly_dark", height=450)
+
             st.plotly_chart(fig, use_container_width=True)
