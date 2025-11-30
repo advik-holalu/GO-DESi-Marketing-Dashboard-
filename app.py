@@ -125,7 +125,7 @@ with tab1:
     st.markdown("<h2>Volume Share MoM Analysis by Keyword Type</h2>", unsafe_allow_html=True)
 
     # Sidebar Filters
-    st.sidebar.header("Filter Options (Tab 1)")
+    st.sidebar.header("Volume Share Tab Filters")
 
     region_filter = st.sidebar.multiselect(
         "Select Region(s):",
@@ -234,7 +234,7 @@ with tab1:
 with tab2:
     st.markdown("<h2>Keyword Trend Analysis</h2>", unsafe_allow_html=True)
 
-    st.sidebar.header("Filter Options (Tab 2)")
+    st.sidebar.header("Keywrord Trend Tab Filters")
 
     # Filters remain unchanged
     region_filter_t2 = st.sidebar.multiselect(
@@ -372,7 +372,7 @@ with tab3:
 
     bs_df, region_bs, category_bs, platform_bs, strength_col = load_brand_strength()
 
-    st.sidebar.header("Filter Options (Tab 3)")
+    st.sidebar.header("Brand Strength Tab Filters")
 
     region_filter_bs = st.sidebar.multiselect(
         "Select Region(s):",
